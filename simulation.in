@@ -1,0 +1,109 @@
+
+# LAMMPS input script for rock particle segmentation dataset
+# Approach: Particle-based conveyor floor. Periodic boundaries in X/Y. 
+# 10 mixed rock templates for size/shape variation.
+
+# --- Initialization ---
+units       cgs
+atom_style  hybrid sphere molecular
+boundary    p p f
+newton      off
+comm_modify vel yes
+
+# --- Region & Box ---
+# Create a box
+region      reg block -10 10 -10 10 -2 20 units box
+create_box  2 reg  # 2 types: 1=rocks, 2=floor
+
+# --- Interactions ---
+# Granular pair style
+pair_style  granular
+pair_coeff  * * hertz/material 1e8 0.3 0.3 tangential mindlin NULL 1.0 0.5 damping tsuji
+
+# --- Floor Generation (Conveyor) ---
+# Create a dense layer of particles at the bottom
+lattice     sc 0.5
+region      floor_reg block -10 10 -10 10 -1.0 0.0 units box
+create_atoms 2 region floor_reg
+
+group       floor type 2
+set         group floor diameter 0.5
+set         group floor density 2.5
+
+# Move the floor to simulate conveyor
+# velocity = 5.0 in x direction
+fix         conveyor floor move linear 5.0 0.0 0.0 units box
+
+# --- Templates for Rocks ---
+# Load all 10 templates
+molecule    rock1 rock1.mol
+molecule    rock2 rock2.mol
+molecule    rock3 rock3.mol
+molecule    rock4 rock4.mol
+molecule    rock5 rock5.mol
+molecule    rock6 rock6.mol
+molecule    rock7 rock7.mol
+molecule    rock8 rock8.mol
+molecule    rock9 rock9.mol
+molecule    rock10 rock10.mol
+
+# --- Particle Insertion ---
+group       rocks type 1
+
+# Fix rigid for rocks
+fix         rigid rocks rigid/small molecule
+
+# Pour command
+# Pour 50 rocks total (5 of each type)
+region      pour_reg block -8 8 -8 8 5 15 units box
+
+# Pour 5 rocks of each template
+fix         ins1 rocks pour 5 0 10001 region pour_reg mol rock1
+fix         ins2 rocks pour 5 0 20002 region pour_reg mol rock2
+fix         ins3 rocks pour 5 0 30003 region pour_reg mol rock3
+fix         ins4 rocks pour 5 0 40004 region pour_reg mol rock4
+fix         ins5 rocks pour 5 0 50005 region pour_reg mol rock5
+fix         ins6 rocks pour 5 0 60006 region pour_reg mol rock6
+fix         ins7 rocks pour 5 0 70007 region pour_reg mol rock7
+fix         ins8 rocks pour 5 0 80008 region pour_reg mol rock8
+fix         ins9 rocks pour 5 0 90009 region pour_reg mol rock9
+fix         ins10 rocks pour 5 0 10010 region pour_reg mol rock10
+
+# --- Physics ---
+fix         grav all gravity 980.0 vector 0.0 0.0 -1.0
+
+# --- Run Settings ---
+timestep    0.0001
+thermo      1000
+
+# --- Run 1: Pour and Settle ---
+run         5000
+
+# Unfix all pour commands
+unfix       ins1
+unfix       ins2
+unfix       ins3
+unfix       ins4
+unfix       ins5
+unfix       ins6
+unfix       ins7
+unfix       ins8
+unfix       ins9
+unfix       ins10
+
+# Allow some settling time
+run         5000
+
+# --- Imaging ---
+# Setup output
+# View 1: Top Down
+dump        img1 rocks image 500 image_top_*.jpg type type view 0 0 zoom 1.2 adiam 1.0
+
+# View 2: Side Profile
+dump        img2 rocks image 500 image_side_*.jpg type type view 90 0 zoom 1.2 adiam 1.0
+
+# View 3: Angled
+dump        img3 rocks image 500 image_angle_*.jpg type type view 60 30 zoom 1.2 adiam 1.0
+
+# Run the conveyor phase
+run         5000

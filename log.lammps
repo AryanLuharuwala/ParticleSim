@@ -1,0 +1,368 @@
+LAMMPS (22 Jul 2025)
+OMP_NUM_THREADS environment is not set. Defaulting to 1 thread.
+  using 1 OpenMP thread(s) per MPI task
+
+# LAMMPS input script for rock particle segmentation dataset
+# Approach: Particle-based conveyor floor. Periodic boundaries in X/Y.
+# 10 mixed rock templates for size/shape variation.
+
+# --- Initialization ---
+units       cgs
+atom_style  hybrid sphere molecular
+WARNING: Atom style hybrid defines both, per-type and per-atom masses; both must be set, but only per-atom masses will be used (src/atom_vec_hybrid.cpp:132)
+boundary    p p f
+newton      off
+comm_modify vel yes
+
+# --- Region & Box ---
+# Create a box
+region      reg block -10 10 -10 10 -2 20 units box
+create_box  2 reg  # 2 types: 1=rocks, 2=floor
+Created orthogonal box = (-10 -10 -2) to (10 10 20)
+  1 by 1 by 1 MPI processor grid
+
+# --- Interactions ---
+# Granular pair style
+pair_style  granular
+pair_coeff  * * hertz/material 1e8 0.3 0.3 tangential mindlin NULL 1.0 0.5 damping tsuji
+
+# --- Floor Generation (Conveyor) ---
+# Create a dense layer of particles at the bottom
+lattice     sc 0.5
+Lattice spacing in x,y,z = 0.5 0.5 0.5
+region      floor_reg block -10 10 -10 10 -1.0 0.0 units box
+create_atoms 2 region floor_reg
+Created 4800 atoms
+  using lattice units in orthogonal box = (-10 -10 -2) to (10 10 20)
+  create_atoms CPU = 0.006 seconds
+
+group       floor type 2
+4800 atoms in group floor
+set         group floor diameter 0.5
+Setting atom values ...
+  4800 settings made for diameter
+set         group floor density 2.5
+Setting atom values ...
+  4800 settings made for density
+
+# Move the floor to simulate conveyor
+# velocity = 5.0 in x direction
+fix         conveyor floor move linear 5.0 0.0 0.0 units box
+
+# --- Templates for Rocks ---
+# Load all 10 templates
+molecule    rock1 rock1.mol
+Read molecule template rock1:
+# Rock template 1 (Approx Size: 2.1 cm)
+  1 molecules
+  0 fragments
+  0 bodies
+  3 atoms with max type 1
+  0 bonds with max type 0
+  0 angles with max type 0
+  0 dihedrals with max type 0
+  0 impropers with max type 0
+molecule    rock2 rock2.mol
+Read molecule template rock2:
+# Rock template 2 (Approx Size: 1.7 cm)
+  1 molecules
+  0 fragments
+  0 bodies
+  5 atoms with max type 1
+  0 bonds with max type 0
+  0 angles with max type 0
+  0 dihedrals with max type 0
+  0 impropers with max type 0
+molecule    rock3 rock3.mol
+Read molecule template rock3:
+# Rock template 3 (Approx Size: 2.1 cm)
+  1 molecules
+  0 fragments
+  0 bodies
+  3 atoms with max type 1
+  0 bonds with max type 0
+  0 angles with max type 0
+  0 dihedrals with max type 0
+  0 impropers with max type 0
+molecule    rock4 rock4.mol
+Read molecule template rock4:
+# Rock template 4 (Approx Size: 2.2 cm)
+  1 molecules
+  0 fragments
+  0 bodies
+  3 atoms with max type 1
+  0 bonds with max type 0
+  0 angles with max type 0
+  0 dihedrals with max type 0
+  0 impropers with max type 0
+molecule    rock5 rock5.mol
+Read molecule template rock5:
+# Rock template 5 (Approx Size: 1.9 cm)
+  1 molecules
+  0 fragments
+  0 bodies
+  5 atoms with max type 1
+  0 bonds with max type 0
+  0 angles with max type 0
+  0 dihedrals with max type 0
+  0 impropers with max type 0
+molecule    rock6 rock6.mol
+Read molecule template rock6:
+# Rock template 6 (Approx Size: 3.5 cm)
+  1 molecules
+  0 fragments
+  0 bodies
+  6 atoms with max type 1
+  0 bonds with max type 0
+  0 angles with max type 0
+  0 dihedrals with max type 0
+  0 impropers with max type 0
+molecule    rock7 rock7.mol
+Read molecule template rock7:
+# Rock template 7 (Approx Size: 3.3 cm)
+  1 molecules
+  0 fragments
+  0 bodies
+  8 atoms with max type 1
+  0 bonds with max type 0
+  0 angles with max type 0
+  0 dihedrals with max type 0
+  0 impropers with max type 0
+molecule    rock8 rock8.mol
+Read molecule template rock8:
+# Rock template 8 (Approx Size: 4.8 cm)
+  1 molecules
+  0 fragments
+  0 bodies
+  5 atoms with max type 1
+  0 bonds with max type 0
+  0 angles with max type 0
+  0 dihedrals with max type 0
+  0 impropers with max type 0
+molecule    rock9 rock9.mol
+Read molecule template rock9:
+# Rock template 9 (Approx Size: 3.3 cm)
+  1 molecules
+  0 fragments
+  0 bodies
+  9 atoms with max type 1
+  0 bonds with max type 0
+  0 angles with max type 0
+  0 dihedrals with max type 0
+  0 impropers with max type 0
+molecule    rock10 rock10.mol
+Read molecule template rock10:
+# Rock template 10 (Approx Size: 3.2 cm)
+  1 molecules
+  0 fragments
+  0 bodies
+  8 atoms with max type 1
+  0 bonds with max type 0
+  0 angles with max type 0
+  0 dihedrals with max type 0
+  0 impropers with max type 0
+
+# --- Particle Insertion ---
+group       rocks type 1
+0 atoms in group rocks
+
+# Fix rigid for rocks
+fix         rigid rocks rigid/small molecule
+Fix rigid/small setup ...
+  create bodies CPU = 0.000 seconds
+  0 rigid bodies with 0 atoms
+  0 = max distance from body owner to body atom
+
+# Pour command
+# Pour 50 rocks total (5 of each type)
+region      pour_reg block -8 8 -8 8 5 15 units box
+
+# Pour 5 rocks of each template
+fix         ins1 rocks pour 5 0 10001 region pour_reg mol rock1
+fix         ins2 rocks pour 5 0 20002 region pour_reg mol rock2
+fix         ins3 rocks pour 5 0 30003 region pour_reg mol rock3
+fix         ins4 rocks pour 5 0 40004 region pour_reg mol rock4
+fix         ins5 rocks pour 5 0 50005 region pour_reg mol rock5
+fix         ins6 rocks pour 5 0 60006 region pour_reg mol rock6
+fix         ins7 rocks pour 5 0 70007 region pour_reg mol rock7
+fix         ins8 rocks pour 5 0 80008 region pour_reg mol rock8
+fix         ins9 rocks pour 5 0 90009 region pour_reg mol rock9
+fix         ins10 rocks pour 5 0 10010 region pour_reg mol rock10
+
+# --- Physics ---
+fix         grav all gravity 980.0 vector 0.0 0.0 -1.0
+
+# --- Run Settings ---
+timestep    0.0001
+thermo      1000
+
+# --- Run 1: Pour and Settle ---
+run         5000
+Generated 0 of 1 mixed pair_coeff terms from geometric mixing rule
+Particle insertion: 55 every 1429 steps, 5 by step 1
+Particle insertion: 180 every 1429 steps, 5 by step 1
+Particle insertion: 30 every 1429 steps, 5 by step 1
+Particle insertion: 30 every 1429 steps, 5 by step 1
+Particle insertion: 70 every 1429 steps, 5 by step 1
+Particle insertion: 6 every 1429 steps, 5 by step 1
+Particle insertion: 12 every 1429 steps, 5 by step 1
+Particle insertion: 3 every 1429 steps, 5 by step 1430
+Particle insertion: 8 every 1429 steps, 5 by step 1
+Particle insertion: 17 every 1429 steps, 5 by step 1
+Neighbor list info ...
+  update: every = 1 steps, delay = 0 steps, check = yes
+  max neighbors/atom: 2000, page size: 100000
+  master list distance cutoff = 3.1077
+  ghost atom cutoff = 3.1077
+  binsize = 1.55385, bins = 13 13 15
+  1 neighbor lists, perpetual/occasional/extra = 1 0 0
+  (1) pair granular, perpetual
+      attributes: half, newton off, size, history
+      pair build: half/size/bin/newtoff
+      stencil: full/bin/3d
+      bin: standard
+Per MPI rank memory allocation (min/avg/max) = 16.11 | 16.11 | 16.11 Mbytes
+   Step          Temp          E_pair         E_mol          TotEng         Press     
+         0   0              0              0              0              0            
+WARNING: Fewer insertions than requested (src/GRANULAR/fix_pour.cpp:691)
+WARNING: Fewer insertions than requested (src/GRANULAR/fix_pour.cpp:691)
+      1000   1.3373505e+19  0              0              13291408       1564470.6    
+WARNING: Fewer insertions than requested (src/GRANULAR/fix_pour.cpp:691)
+WARNING: Fewer insertions than requested (src/GRANULAR/fix_pour.cpp:691)
+      2000   1.3373505e+19  0              0              13291408       1564470.6    
+WARNING: Fewer insertions than requested (src/GRANULAR/fix_pour.cpp:691)
+WARNING: Fewer insertions than requested (src/GRANULAR/fix_pour.cpp:691)
+      3000   1.3382652e+19  0              0              13300499       1673133.6    
+      4000   1.3382652e+19  0              0              13300499       1673133.6    
+WARNING: Fewer insertions than requested (src/GRANULAR/fix_pour.cpp:691)
+WARNING: Fewer insertions than requested (src/GRANULAR/fix_pour.cpp:691)
+      5000   1.3382652e+19  0              0              13300499       1673133.6    
+Loop time of 6.20356 on 1 procs for 5000 steps with 5033 atoms
+
+98.6% CPU use with 1 MPI tasks x 1 OpenMP threads
+
+MPI task timing breakdown:
+Section |  min time  |  avg time  |  max time  |%varavg| %total
+---------------------------------------------------------------
+Pair    | 3.2527     | 3.2527     | 3.2527     |   0.0 | 52.43
+Bond    | 0.0006947  | 0.0006947  | 0.0006947  |   0.0 |  0.01
+Neigh   | 1.1256     | 1.1256     | 1.1256     |   0.0 | 18.15
+Comm    | 0.42219    | 0.42219    | 0.42219    |   0.0 |  6.81
+Output  | 0.00059506 | 0.00059506 | 0.00059506 |   0.0 |  0.01
+Modify  | 1.2588     | 1.2588     | 1.2588     |   0.0 | 20.29
+Other   |            | 0.1429     |            |       |  2.30
+
+Nlocal:           5033 ave        5033 max        5033 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+Nghost:           3729 ave        3729 max        3729 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+Neighs:          13607 ave       13607 max       13607 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+
+Total # of neighbors = 13607
+Ave neighs/atom = 2.7035565
+Ave special neighs/atom = 0
+Neighbor list builds = 53
+Dangerous builds = 0
+
+# Unfix all pour commands
+unfix       ins1
+unfix       ins2
+unfix       ins3
+unfix       ins4
+unfix       ins5
+unfix       ins6
+unfix       ins7
+unfix       ins8
+unfix       ins9
+unfix       ins10
+
+# Allow some settling time
+run         5000
+Generated 0 of 1 mixed pair_coeff terms from geometric mixing rule
+Per MPI rank memory allocation (min/avg/max) = 17.27 | 17.27 | 17.27 Mbytes
+   Step          Temp          E_pair         E_mol          TotEng         Press     
+      5000   1.2762987e+19  0              0              13300499       1673133.6    
+      6000   1.2762987e+19  0              0              13300499       1673133.6    
+      7000   1.2762987e+19  0              0              13300499       1673133.6    
+      8000   1.2762987e+19  0              0              13300499       1673133.6    
+      9000   1.2762987e+19  0              0              13300499       1673133.6    
+     10000   1.2762987e+19  0              0              13300499       1673133.6    
+Loop time of 4.26881 on 1 procs for 5000 steps with 5033 atoms
+
+99.2% CPU use with 1 MPI tasks x 1 OpenMP threads
+
+MPI task timing breakdown:
+Section |  min time  |  avg time  |  max time  |%varavg| %total
+---------------------------------------------------------------
+Pair    | 1.5971     | 1.5971     | 1.5971     |   0.0 | 37.41
+Bond    | 0.00031289 | 0.00031289 | 0.00031289 |   0.0 |  0.01
+Neigh   | 1.5659     | 1.5659     | 1.5659     |   0.0 | 36.68
+Comm    | 0.34354    | 0.34354    | 0.34354    |   0.0 |  8.05
+Output  | 0.00029536 | 0.00029536 | 0.00029536 |   0.0 |  0.01
+Modify  | 0.69104    | 0.69104    | 0.69104    |   0.0 | 16.19
+Other   |            | 0.07067    |            |       |  1.66
+
+Nlocal:           5033 ave        5033 max        5033 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+Nghost:           6616 ave        6616 max        6616 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+Neighs:          13607 ave       13607 max       13607 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+
+Total # of neighbors = 13607
+Ave neighs/atom = 2.7035565
+Ave special neighs/atom = 0
+Neighbor list builds = 49
+Dangerous builds = 0
+
+# --- Imaging ---
+# Setup output
+# View 1: Top Down
+dump        img1 rocks image 500 image_top_*.jpg type type view 0 0 zoom 1.2 adiam 1.0
+
+# View 2: Side Profile
+dump        img2 rocks image 500 image_side_*.jpg type type view 90 0 zoom 1.2 adiam 1.0
+
+# View 3: Angled
+dump        img3 rocks image 500 image_angle_*.jpg type type view 60 30 zoom 1.2 adiam 1.0
+
+# Run the conveyor phase
+run         5000
+Generated 0 of 1 mixed pair_coeff terms from geometric mixing rule
+Per MPI rank memory allocation (min/avg/max) = 17.27 | 17.27 | 17.27 Mbytes
+   Step          Temp          E_pair         E_mol          TotEng         Press     
+     10000   1.2762987e+19  0              0              13300499       1673133.6    
+     11000   1.2762987e+19  0              0              13300499       1673133.6    
+     12000   1.2762987e+19  0              0              13300499       1673133.6    
+     13000   1.2762987e+19  0              0              13300499       1673133.6    
+     14000   1.2762987e+19  0              0              13300499       1673133.6    
+     15000   1.2762987e+19  0              0              13300499       1673133.6    
+Loop time of 3.84358 on 1 procs for 5000 steps with 5033 atoms
+
+97.7% CPU use with 1 MPI tasks x 1 OpenMP threads
+
+MPI task timing breakdown:
+Section |  min time  |  avg time  |  max time  |%varavg| %total
+---------------------------------------------------------------
+Pair    | 1.3602     | 1.3602     | 1.3602     |   0.0 | 35.39
+Bond    | 0.00029323 | 0.00029323 | 0.00029323 |   0.0 |  0.01
+Neigh   | 1.3444     | 1.3444     | 1.3444     |   0.0 | 34.98
+Comm    | 0.30616    | 0.30616    | 0.30616    |   0.0 |  7.97
+Output  | 0.14891    | 0.14891    | 0.14891    |   0.0 |  3.87
+Modify  | 0.6191     | 0.6191     | 0.6191     |   0.0 | 16.11
+Other   |            | 0.06454    |            |       |  1.68
+
+Nlocal:           5033 ave        5033 max        5033 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+Nghost:           6616 ave        6616 max        6616 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+Neighs:          13607 ave       13607 max       13607 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+
+Total # of neighbors = 13607
+Ave neighs/atom = 2.7035565
+Ave special neighs/atom = 0
+Neighbor list builds = 49
+Dangerous builds = 0
+Total wall time: 0:00:14
