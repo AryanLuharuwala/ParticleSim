@@ -10,9 +10,11 @@ from mathutils import Vector
 sys.path.append(os.getcwd())
 
 class MiningConveyorSimulator:
-    def __init__(self, output_dir="dataset", num_images=10):
+    def __init__(self, output_dir="dataset", num_images=10, use_raycast_visibility=False, use_exact_volume=False):
         self.output_dir = output_dir
         self.num_images = num_images
+        self.use_raycast_visibility = use_raycast_visibility
+        self.use_exact_volume = use_exact_volume
         self.scene = bpy.context.scene
         self.collection = bpy.data.collections.get("Collection")
         if not self.collection:
@@ -30,6 +32,7 @@ class MiningConveyorSimulator:
         # Delete everything
         bpy.ops.object.select_all(action='SELECT')
         bpy.ops.object.delete()
+        self.rocks = []
         
         # Remove orphan data blocks to prevent memory leaks
         for block in bpy.data.meshes:
@@ -179,104 +182,58 @@ class MiningConveyorSimulator:
         print(f"Loaded {len(templates)} templates.")
         return templates
 
-    def spawn_rocks_via_particles(self, templates, num_rocks):
-        # Create Emitter Cube (Volume)
-        # Size 2x4x5 roughly
-        bpy.ops.mesh.primitive_cube_add(size=1, location=(0,0,5))
-        emitter = bpy.context.active_object
-        emitter.scale = (1.5, 4.0, 5.0) # XYZ scale
-        emitter.name = "Emitter"
+    def spawn_rocks_direct(self, templates, num_rocks):
+        rocks = []
         
-        # Add Particle System
-        psys = emitter.modifiers.new("Rocks", type='PARTICLE_SYSTEM')
-        settings = psys.particle_system.settings
+        # Define spawn area (flat on belt)
+        x_range = (-4.0, 4.0)
+        y_range = (-4.0, 4.0)
+        z_base = 0.05  # Just above belt
         
-        settings.count = num_rocks
-        settings.frame_start = 1
-        settings.frame_end = 1
-        settings.lifetime = 1000
-        settings.emit_from = 'VOLUME'
-        settings.distribution = 'RAND'
+        # Size distribution: mix of small, medium, and large
+        # Using a distribution that favors smaller but includes larger rocks
+        def get_random_scale():
+            r = random.random()
+            if r < 0.8:  # 60% small
+                return random.uniform(0.05, 0.25)
+            elif r < 0.99:  # 30% medium
+                return random.uniform(0.25, 0.35)
+            else:  # 10% large
+                return random.uniform(0.5, 1)
         
-        # Physics: None (we'll bake them to objects then use Rigid Body)
-        settings.physics_type = 'NO'
-        
-        # Render: Collection
-        settings.render_type = 'COLLECTION'
-        settings.instance_collection = bpy.data.collections.get("Templates")
-        if not settings.instance_collection:
-            # If templates not in collection, put them in one
-            coll = bpy.data.collections.new("Templates")
-            self.scene.collection.children.link(coll)
-            for t in templates:
-                try:
-                    coll.objects.link(t)
-                except: pass # Already there
-            settings.instance_collection = coll
+        for i in range(num_rocks):
+            # Pick random template
+            template = random.choice(templates)
             
-        settings.use_scale_instance = True
-        settings.particle_size = 1.0 
-        settings.size_random = 0.8 # Randomize scale
-        
-        settings.use_rotations = True
-        settings.rotation_mode = 'NOR'
-        settings.phase_factor_random = 2.0 # Random rotation
-        
-        # Update scene to spawn particles
-        bpy.context.view_layer.update()
-        
-        # Convert particles to real objects
-        bpy.ops.object.duplicates_make_real()
-        
-        # Get selected objects (the rocks + emitter)
-        # CRITICAL: Do this BEFORE deleting the emitter
-        all_selected = bpy.context.selected_objects
-        
-        # Identify the rocks (everything that is NOT the emitter)
-        rocks = [o for o in all_selected if o != emitter and o.type == 'MESH']
-        
-        # Delete emitter
-        bpy.data.objects.remove(emitter)
-        
-        if not rocks:
-            print("Error: No rocks generated from particles?")
-            return []
+            # Duplicate the template mesh data (not linked)
+            new_mesh = template.data.copy()
+            rock = bpy.data.objects.new(f"Rock_{i}", new_mesh)
             
-        print(f"Generated {len(rocks)} rocks. Setting up physics...")
-        
-        # Collection management
-        # Ensure rocks are in the main collection (they might be in no collection or Emitter's)
-        # duplicates_make_real usually puts them in the same collection as emitter.
-        # Our emitter was in self.collection?
-        # self.collection.objects.link(emitter) was implict if active? 
-        # We created emitter with primitive_cube_add, which adds to active collection.
-        # So rocks should be in self.collection.
-        
-        # Set Rigid Body for ALL rocks
-        # Using ops is slow and requires selection/active management.
-        # Direct API access is faster and safer.
-        
-        rb_coll = self.scene.rigidbody_world.collection
-        
-        for i, rock in enumerate(rocks):
-            rock.name = f"Rock_{i}"
+            # Random position with slight jitter in Z for layering
+            x = random.uniform(*x_range)
+            y = random.uniform(*y_range)
+            z = z_base + random.uniform(0, 0.3)
+            rock.location = (x, y, z)
+            
+            # Random rotation
+            rock.rotation_euler = (
+                random.uniform(0, math.pi * 2),
+                random.uniform(0, math.pi * 2),
+                random.uniform(0, math.pi * 2)
+            )
+            
+            # Random scale with good distribution
+            scale = get_random_scale()
+            rock.scale = (scale, scale, scale)
+            
+            # Set pass index for segmentation
             rock.pass_index = i + 1
             
-            # Link to Rigid Body World if not already
-            if rock.name not in rb_coll.objects:
-                rb_coll.objects.link(rock)
-                
-            rock.rigid_body.type = 'ACTIVE'
-            rock.rigid_body.collision_shape = 'CONVEX_HULL'
-            rock.rigid_body.friction = 0.9
-            
-            # Calculate Mass
-            # Scale might need to be applied or read from world matrix?
-            # rock.scale is local.
-            s = rock.scale
-            vol = s.x * s.y * s.z
-            rock.rigid_body.mass = 1000.0 * vol if vol > 0.000001 else 0.001
-            
+            # Link to scene
+            self.scene.collection.objects.link(rock)
+            rocks.append(rock)
+        
+        print(f"Generated {len(rocks)} rocks.")
         return rocks
 
     def setup_scene(self):
@@ -291,25 +248,7 @@ class MiningConveyorSimulator:
         bsdf = mat.node_tree.nodes.get("Principled BSDF")
         bsdf.inputs['Base Color'].default_value = (0.05, 0.05, 0.05, 1.0)
         belt.data.materials.append(mat)
-        
-        # Physics - Passive
-        bpy.ops.rigidbody.object_add()
-        belt.rigid_body.type = 'PASSIVE'
-        belt.rigid_body.friction = 0.8
-        
-        # Walls to keep rocks in view
-        bpy.ops.mesh.primitive_cube_add(scale=(1, 5, 1), location=(-2.5, 0, 1))
-        wall_l = bpy.context.active_object
-        bpy.ops.rigidbody.object_add()
-        wall_l.rigid_body.type = 'PASSIVE'
-        wall_l.hide_render = True
-        
-        bpy.ops.mesh.primitive_cube_add(scale=(1, 5, 1), location=(2.5, 0, 1))
-        wall_r = bpy.context.active_object
-        bpy.ops.rigidbody.object_add()
-        wall_r.rigid_body.type = 'PASSIVE'
-        wall_r.hide_render = True
-        
+
         # Light
         bpy.ops.object.light_add(type='SUN', location=(0, 0, 10))
         sun = bpy.context.active_object
@@ -341,6 +280,8 @@ class MiningConveyorSimulator:
         Check if object is visible from camera using raycast.
         Cast rays to bounding box corners and center.
         """
+        if not self.use_raycast_visibility:
+            return True
         scene = self.scene
         cam_loc = cam.matrix_world.translation
         
@@ -427,7 +368,7 @@ class MiningConveyorSimulator:
         
         # Get all rocks
         # dependent on how we track them. We can iterate scene objects and check name
-        rocks = [obj for obj in self.scene.objects if obj.name.startswith("Rock")]
+        rocks = self.rocks if self.rocks else [obj for obj in self.scene.objects if obj.name.startswith("Rock")]
         
         image_width = self.scene.render.resolution_x
         image_height = self.scene.render.resolution_y
@@ -507,22 +448,16 @@ class MiningConveyorSimulator:
             
             # --- Physical Metrics ---
             dims = rock.dimensions # x, y, z size in world units
-            # Approx volume from dimensions (box) or calculate mesh volume?
-            # Mesh volume is better.
-            # Need bmesh
-            # import bmesh (add to top if needed using local in function)
-            import bmesh
-            bm = bmesh.new()
-            bm.from_mesh(mesh)
-            # Transform to world scale?
-            # bmesh.calc_volume() is in local space. Scale by object scale.
-            # rock.scale
-            vol_local = bm.calc_volume()
-            bm.free()
-            
-            # Volume scale factor = scale.x * scale.y * scale.z
-            scale_fac = rock.scale.x * rock.scale.y * rock.scale.z
-            vol_world = vol_local * scale_fac
+            if self.use_exact_volume:
+                import bmesh
+                bm = bmesh.new()
+                bm.from_mesh(mesh)
+                vol_local = bm.calc_volume()
+                bm.free()
+                scale_fac = rock.scale.x * rock.scale.y * rock.scale.z
+                vol_world = vol_local * scale_fac
+            else:
+                vol_world = dims.x * dims.y * dims.z
             
             metadata.append({
                 "id": rock.pass_index, # Matches mask color/index
@@ -555,36 +490,27 @@ class MiningConveyorSimulator:
             }, f, indent=2)
     def run(self):
         print("Starting Dataset Generation...")
-        
-        # Pre-load templates
-        templates = self.load_templates()
-        if not templates:
-            return
             
         for i in range(self.num_images):
             print(f"Generating Image {i+1}/{self.num_images}")
+            
+            # Reload templates each iteration (they get cleared with scene)
+            templates = self.load_templates()
+            if not templates:
+                print("Error: Could not load templates")
+                continue
+            
             self.clear_scene()
             self.setup_scene()
             
-            # Spawn Rocks
-            num_rocks = random.randint(10000, 15000) 
-            print(f"Spawning {num_rocks} rocks via Particle System...")
+            # Spawn Rocks - reduced count for speed, direct placement for better distribution
+            num_rocks = random.randint(5000, 15000) 
+            print(f"Spawning {num_rocks} rocks...")
             
-            self.spawn_rocks_via_particles(templates, num_rocks)
-            
-            # Simulate Physics
-                
-            # Simulate Physics
-            # Run for more frames to let the pile settle
-            start_frame = 1
-            settle_frames = 100
-            self.scene.frame_end = settle_frames
-            
-            for f in range(start_frame, settle_frames + 1):
-                self.scene.frame_set(f)
-                
-            # Render at settle frame
-            self.scene.frame_set(settle_frames)
+            self.rocks = self.spawn_rocks_direct(templates, num_rocks)
+
+            # Set frame for rendering (no physics simulation)
+            self.scene.frame_set(1)
             
             # Update output filename based on frame/index
             # The File Output node appends frame number, so we set frame number to 'i'
@@ -639,7 +565,7 @@ class MiningConveyorSimulator:
                 bpy.ops.render.render(write_still=False) 
                 
                 # Save Annotations
-                final_frame_str = f"{settle_frames:04d}" 
+                final_frame_str = "0001"
                 label_filename = f"{img_prefix}{final_frame_str}" 
                 
                 print(f"Saving annotations for {label_filename}...")
