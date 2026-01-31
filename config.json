@@ -1,0 +1,24 @@
+{
+    "_comment_rocks": "Number of rocks to spawn per image (random between min and max)",
+    "num_rocks_min": 5000,
+    "num_rocks_max": 15000,
+    
+    "_comment_spawn": "Spawn area bounds in Blender units. Rocks spawn randomly within this box.",
+    "spawn_x_range": [-4.0, 4.0],
+    "spawn_y_range": [-4.0, 4.0],
+    "spawn_z_base": 0.05,
+    "_comment_z_jitter": "Random Z offset added to z_base for layering effect",
+    "spawn_z_jitter": 0.3,
+    
+    "_comment_scale": "Scale distribution: [probability_threshold, min_scale, max_scale]. Evaluated in order - if random() < threshold, use that range. Example: [0.80, 0.05, 0.25] means 80% chance of scale 0.05-0.25",
+    "scale_distribution": [
+        [0.80, 0.05, 0.25],
+        [0.99, 0.25, 0.35],
+        [1.00, 0.50, 1.00]
+    ],
+    
+    "_comment_render": "Cycles render settings",
+    "render_samples": 64,
+    "resolution_x": 512,
+    "resolution_y": 512
+}

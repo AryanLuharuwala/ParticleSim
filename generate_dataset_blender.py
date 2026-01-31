@@ -9,6 +9,43 @@ from mathutils import Vector
 # Add current dir to path if needed for local modules
 sys.path.append(os.getcwd())
 
+# ============== CONFIGURATION ==============
+# Load config from JSON file, with defaults as fallback
+DEFAULT_CONFIG = {
+    "num_rocks_min": 5000,
+    "num_rocks_max": 15000,
+    "spawn_x_range": [-4.0, 4.0],
+    "spawn_y_range": [-4.0, 4.0],
+    "spawn_z_base": 0.05,
+    "spawn_z_jitter": 0.3,
+    "scale_distribution": [
+        [0.80, 0.05, 0.25],
+        [0.99, 0.25, 0.35],
+        [1.00, 0.50, 1.00],
+    ],
+    "render_samples": 64,
+    "resolution_x": 512,
+    "resolution_y": 512,
+}
+
+def load_config():
+    config_path = os.path.join(os.path.dirname(__file__), "config.json")
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, 'r') as f:
+                user_config = json.load(f)
+            # Merge with defaults
+            config = DEFAULT_CONFIG.copy()
+            config.update(user_config)
+            print(f"Loaded config from {config_path}")
+            return config
+        except Exception as e:
+            print(f"Warning: Failed to load config.json: {e}")
+    return DEFAULT_CONFIG.copy()
+
+CONFIG = load_config()
+# ============================================
+
 class MiningConveyorSimulator:
     def __init__(self, output_dir="dataset", num_images=10, use_raycast_visibility=False, use_exact_volume=False):
         self.output_dir = output_dir
@@ -185,21 +222,21 @@ class MiningConveyorSimulator:
     def spawn_rocks_direct(self, templates, num_rocks):
         rocks = []
         
-        # Define spawn area (flat on belt)
-        x_range = (-4.0, 4.0)
-        y_range = (-4.0, 4.0)
-        z_base = 0.05  # Just above belt
+        # Use CONFIG for spawn area
+        x_range = CONFIG["spawn_x_range"]
+        y_range = CONFIG["spawn_y_range"]
+        z_base = CONFIG["spawn_z_base"]
+        z_jitter = CONFIG["spawn_z_jitter"]
+        scale_dist = CONFIG["scale_distribution"]
         
-        # Size distribution: mix of small, medium, and large
-        # Using a distribution that favors smaller but includes larger rocks
+        # Size distribution from config
         def get_random_scale():
             r = random.random()
-            if r < 0.8:  # 60% small
-                return random.uniform(0.05, 0.25)
-            elif r < 0.99:  # 30% medium
-                return random.uniform(0.25, 0.35)
-            else:  # 10% large
-                return random.uniform(0.5, 1)
+            for threshold, min_s, max_s in scale_dist:
+                if r < threshold:
+                    return random.uniform(min_s, max_s)
+            # Fallback to last entry
+            return random.uniform(scale_dist[-1][1], scale_dist[-1][2])
         
         for i in range(num_rocks):
             # Pick random template
@@ -212,7 +249,7 @@ class MiningConveyorSimulator:
             # Random position with slight jitter in Z for layering
             x = random.uniform(*x_range)
             y = random.uniform(*y_range)
-            z = z_base + random.uniform(0, 0.3)
+            z = z_base + random.uniform(0, z_jitter)
             rock.location = (x, y, z)
             
             # Random rotation
@@ -504,7 +541,7 @@ class MiningConveyorSimulator:
             self.setup_scene()
             
             # Spawn Rocks - reduced count for speed, direct placement for better distribution
-            num_rocks = random.randint(5000, 15000) 
+            num_rocks = random.randint(CONFIG["num_rocks_min"], CONFIG["num_rocks_max"]) 
             print(f"Spawning {num_rocks} rocks...")
             
             self.rocks = self.spawn_rocks_direct(templates, num_rocks)
