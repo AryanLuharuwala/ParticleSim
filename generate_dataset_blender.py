@@ -86,39 +86,53 @@ class MiningConveyorSimulator:
                 bpy.data.images.remove(block)
 
     def setup_render_settings(self):
-        # Use Cycles for realism
-        self.scene.render.engine = 'CYCLES'
-        self.scene.cycles.device = 'GPU'
-        self.scene.cycles.samples = 64
-        # Denoising
-        self.scene.cycles.use_denoising = True
+        # Get render engine from config (EEVEE is faster, CYCLES is more realistic)
+        render_engine = CONFIG.get("render_engine", "EEVEE").upper()
         
-        self.scene.render.resolution_x = 512
-        self.scene.render.resolution_y = 512
-        self.scene.render.resolution_percentage = 100
-        
-        # Configure GPU usage in Preferences
-        try:
-            cycles_prefs = bpy.context.preferences.addons['cycles'].preferences
-            # Try OPTIX first, then CUDA
-            try:
-                cycles_prefs.compute_device_type = 'OPTIX'
-            except:
-                cycles_prefs.compute_device_type = 'CUDA'
-                
-            cycles_prefs.get_devices()
+        if render_engine == "EEVEE":
+            self.scene.render.engine = 'BLENDER_EEVEE_NEXT'  # Blender 4.x
+            # Fallback for older Blender
+            if self.scene.render.engine != 'BLENDER_EEVEE_NEXT':
+                try:
+                    self.scene.render.engine = 'BLENDER_EEVEE'
+                except:
+                    pass
+            print("Using EEVEE render engine (fast, no raytracing)")
+        else:
+            # Use Cycles for realism
+            self.scene.render.engine = 'CYCLES'
+            self.scene.cycles.device = 'GPU'
+            self.scene.cycles.samples = CONFIG.get("render_samples", 64)
+            self.scene.cycles.use_denoising = True
             
-            # Enable all GPU devices
-            print("Configuring Render Devices:")
-            for device in cycles_prefs.devices:
-                if device.type in {'CUDA', 'OPTIX'}:
-                    device.use = True
-                    print(f"  - Enabled: {device.name} ({device.type})")
-                else:
-                    device.use = False
+            # Configure GPU usage in Preferences
+            try:
+                cycles_prefs = bpy.context.preferences.addons['cycles'].preferences
+                # Try CUDA (more compatible) then OPTIX
+                try:
+                    cycles_prefs.compute_device_type = 'CUDA'
+                except:
+                    try:
+                        cycles_prefs.compute_device_type = 'OPTIX'
+                    except:
+                        pass
                     
-        except Exception as e:
-            print(f"Warning: Failed to configure GPU preferences: {e}")
+                cycles_prefs.get_devices()
+                
+                print("Configuring Render Devices:")
+                for device in cycles_prefs.devices:
+                    if device.type in {'CUDA', 'OPTIX'}:
+                        device.use = True
+                        print(f"  - Enabled: {device.name} ({device.type})")
+                    else:
+                        device.use = False
+                        
+            except Exception as e:
+                print(f"Warning: Failed to configure GPU preferences: {e}")
+        
+        self.scene.render.resolution_x = CONFIG.get("resolution_x", 512)
+        self.scene.render.resolution_y = CONFIG.get("resolution_y", 512)
+        self.scene.render.resolution_percentage = 100
         
     def setup_compositor(self):
         self.scene.use_nodes = True
@@ -131,9 +145,6 @@ class MiningConveyorSimulator:
         # Create input
         rl_layer = tree.nodes.new('CompositorNodeRLayers')
         rl_layer.location = (0, 0)
-        
-        # Enable Object Index pass for segmentation
-        self.scene.view_layers["ViewLayer"].use_pass_object_index = True
         
         # Output RGB
         file_output_node = tree.nodes.new('CompositorNodeOutputFile')
@@ -151,15 +162,15 @@ class MiningConveyorSimulator:
         # Link RGB to first input
         tree.links.new(rl_layer.outputs['Image'], file_output_node.inputs[0])
         
-        # Create second slot for Mask
-        slots.new('mask')
-        
-        # Link IndexOB to second input
-        # Note: IndexOB is a value, but saving as image might normalize it or save as float.
-        # Saved as PNG, it might be black for low indices (1, 2, 3...) if not normalized.
-        # But for valid data, EXR is better, or we trust user can normalize. 
-        # For visualization, let's keep it direct for now.
-        tree.links.new(rl_layer.outputs['IndexOB'], file_output_node.inputs[1])
+        # Create second slot for Mask (only for Cycles - EEVEE doesn't have IndexOB)
+        if self.scene.render.engine == 'CYCLES':
+            slots.new('mask')
+            
+            # Enable Object Index pass for segmentation
+            self.scene.view_layers["ViewLayer"].use_pass_object_index = True
+            
+            # Link IndexOB to second input
+            tree.links.new(rl_layer.outputs['IndexOB'], file_output_node.inputs[1])
 
     def create_material(self, name):
         mat = bpy.data.materials.new(name=name)
@@ -220,6 +231,7 @@ class MiningConveyorSimulator:
         return templates
 
     def spawn_rocks_direct(self, templates, num_rocks):
+        """Spawn rocks using linked mesh data (instancing) - much faster sync."""
         rocks = []
         
         # Use CONFIG for spawn area
@@ -235,42 +247,44 @@ class MiningConveyorSimulator:
             for threshold, min_s, max_s in scale_dist:
                 if r < threshold:
                     return random.uniform(min_s, max_s)
-            # Fallback to last entry
             return random.uniform(scale_dist[-1][1], scale_dist[-1][2])
         
+        # Pre-generate all random values for speed
+        template_choices = [random.choice(templates) for _ in range(num_rocks)]
+        positions = [
+            (random.uniform(*x_range), random.uniform(*y_range), z_base + random.uniform(0, z_jitter))
+            for _ in range(num_rocks)
+        ]
+        rotations = [
+            (random.uniform(0, math.pi * 2), random.uniform(0, math.pi * 2), random.uniform(0, math.pi * 2))
+            for _ in range(num_rocks)
+        ]
+        scales = [get_random_scale() for _ in range(num_rocks)]
+        
+        # Create all objects using LINKED mesh data (instancing - much faster)
+        # This means all rocks sharing a template share the same mesh in memory
         for i in range(num_rocks):
-            # Pick random template
-            template = random.choice(templates)
+            template = template_choices[i]
+            # Use linked mesh data instead of copying - MUCH faster for sync
+            rock = bpy.data.objects.new(f"Rock_{i}", template.data)
             
-            # Duplicate the template mesh data (not linked)
-            new_mesh = template.data.copy()
-            rock = bpy.data.objects.new(f"Rock_{i}", new_mesh)
-            
-            # Random position with slight jitter in Z for layering
-            x = random.uniform(*x_range)
-            y = random.uniform(*y_range)
-            z = z_base + random.uniform(0, z_jitter)
-            rock.location = (x, y, z)
-            
-            # Random rotation
-            rock.rotation_euler = (
-                random.uniform(0, math.pi * 2),
-                random.uniform(0, math.pi * 2),
-                random.uniform(0, math.pi * 2)
-            )
-            
-            # Random scale with good distribution
-            scale = get_random_scale()
-            rock.scale = (scale, scale, scale)
-            
-            # Set pass index for segmentation
+            rock.location = positions[i]
+            rock.rotation_euler = rotations[i]
+            s = scales[i]
+            rock.scale = (s, s, s)
             rock.pass_index = i + 1
             
-            # Link to scene
-            self.scene.collection.objects.link(rock)
             rocks.append(rock)
         
-        print(f"Generated {len(rocks)} rocks.")
+        # Batch link all objects to scene at once
+        collection = self.scene.collection
+        for rock in rocks:
+            collection.objects.link(rock)
+        
+        # Single view layer update after all objects are added
+        bpy.context.view_layer.update()
+        
+        print(f"Generated {len(rocks)} rocks (instanced).")
         return rocks
 
     def setup_scene(self):
@@ -595,7 +609,9 @@ class MiningConveyorSimulator:
                 
                 out_node = self.scene.node_tree.nodes.get("File Output")
                 out_node.file_slots[0].path = img_prefix
-                out_node.file_slots[1].path = mask_prefix
+                # Only set mask path if using Cycles (EEVEE doesn't have mask output)
+                if len(out_node.file_slots) > 1:
+                    out_node.file_slots[1].path = mask_prefix
                 
                 # Render
                 print(f"Rendering View: {view['name']}")

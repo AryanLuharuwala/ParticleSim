@@ -17,7 +17,8 @@
         [1.00, 0.50, 1.00]
     ],
     
-    "_comment_render": "Cycles render settings",
+    "_comment_render": "Render settings. render_engine can be 'EEVEE' (fast, no raytracing) or 'CYCLES' (realistic, slower)",
+    "render_engine": "EEVEE",
     "render_samples": 64,
     "resolution_x": 512,
     "resolution_y": 512
