@@ -490,15 +490,15 @@ class MiningConveyorSimulator:
             }, f, indent=2)
     def run(self):
         print("Starting Dataset Generation...")
+        
+        # Load templates ONCE at the start
+        templates = self.load_templates()
+        if not templates:
+            print("Error: Could not load templates")
+            return
             
         for i in range(self.num_images):
             print(f"Generating Image {i+1}/{self.num_images}")
-            
-            # Reload templates each iteration (they get cleared with scene)
-            templates = self.load_templates()
-            if not templates:
-                print("Error: Could not load templates")
-                continue
             
             self.clear_scene()
             self.setup_scene()
